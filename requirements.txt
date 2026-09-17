@@ -1,0 +1,2 @@
+# GUI toolkit. PySide6 6.5 or newer is required for the Qt6 enum names used here.
+PySide6>=6.5
