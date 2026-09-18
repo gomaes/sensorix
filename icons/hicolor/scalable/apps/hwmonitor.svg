@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>HWMonitor for Linux</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26262a"/>
+      <stop offset="1" stop-color="#151517"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="256" height="256" rx="56" fill="url(#bg)"/>
+  <rect x="3" y="3" width="250" height="250" rx="53" fill="none" stroke="#3a3a40" stroke-width="6"/>
+
+  <!-- thermometer -->
+  <rect x="58" y="38" width="34" height="146" rx="17" fill="#3a3a40"/>
+  <circle cx="75" cy="196" r="35" fill="#3a3a40"/>
+  <rect x="67" y="92" width="16" height="96" rx="8" fill="#ff5f56"/>
+  <circle cx="75" cy="196" r="24" fill="#ff5f56"/>
+  <rect x="98" y="62" width="16" height="7" rx="3.5" fill="#8b8b90"/>
+  <rect x="98" y="94" width="16" height="7" rx="3.5" fill="#8b8b90"/>
+  <rect x="98" y="126" width="16" height="7" rx="3.5" fill="#8b8b90"/>
+
+  <!-- activity bars -->
+  <rect x="136" y="168" width="26" height="46" rx="7" fill="#4ec9b0"/>
+  <rect x="170" y="128" width="26" height="86" rx="7" fill="#7ec4ff"/>
+  <rect x="204" y="88" width="26" height="126" rx="7" fill="#4ec9b0"/>
+  <rect x="130" y="222" width="106" height="7" rx="3.5" fill="#4a4a52"/>
+</svg>

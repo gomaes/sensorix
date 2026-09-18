@@ -1,0 +1,23 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=HWMonitor
+GenericName=Hardware Monitor
+GenericName[ja]=ハードウェアモニター
+Comment=Monitor CPU, GPU and mainboard temperatures, fan speeds and voltages
+Comment[ja]=CPU・GPU・マザーボードの温度、ファン回転数、電圧を監視します
+Exec=@EXEC@
+TryExec=@EXEC@
+Icon=hwmonitor
+Terminal=false
+Categories=System;Monitor;
+Keywords=hardware;monitor;temperature;sensor;sensors;fan;voltage;cpu;gpu;hwmon;lm-sensors;
+Keywords[ja]=ハードウェア;モニター;温度;センサー;ファン;電圧;
+StartupNotify=true
+StartupWMClass=hwmonitor
+Actions=ontop;
+
+[Desktop Action ontop]
+Name=Start always on top
+Name[ja]=最前面に固定して起動
+Exec=@EXEC@ --always-on-top

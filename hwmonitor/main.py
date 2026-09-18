@@ -137,12 +137,19 @@ def run_gui(args: argparse.Namespace) -> int:
         return 2
 
     from .ui import theme
+    from .ui.icons import ICON_NAME, app_icon
     from .ui.main_window import MainWindow
 
     app = QApplication(sys.argv)
-    app.setApplicationName(APP_NAME)
+    # applicationName doubles as the X11 WM_CLASS, and desktopFileName as the
+    # Wayland app_id; both must match hwmonitor.desktop for the desktop shell to
+    # pair the window with its launcher icon.
+    app.setApplicationName(ICON_NAME)
+    app.setApplicationDisplayName(APP_NAME)
+    app.setDesktopFileName(ICON_NAME)
     app.setApplicationVersion(__version__)
     app.setOrganizationName("hwmonitor-linux")
+    app.setWindowIcon(app_icon())
     theme.apply(app)
 
     window = MainWindow(
