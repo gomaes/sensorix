@@ -103,8 +103,9 @@ def test_unresolvable_names_degrade_gracefully():
         # a plain-language description beats a bare driver name
         assert groups["amdgpu"].name == "AMD GPU"
         assert groups["drivetemp"].name == "Samsung SSD 870 EVO 1TB"
-        # nothing known about these at all, so the driver name stays
-        assert groups["k10temp"].name == "k10temp"
+        # a CPU with no readable /proc/cpuinfo is still described in words
+        assert groups["k10temp"].name == "Processor"
+        # nothing known about this one at all, so the driver name stays
         assert groups["it8688"].name == "it8688"
         # the model string comes from sysfs, so it survives
         assert groups["nvme"].name == "Samsung SSD 980 PRO 1TB"

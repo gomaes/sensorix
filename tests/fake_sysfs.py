@@ -250,3 +250,106 @@ if __name__ == "__main__":  # pragma: no cover - manual helper
             ]
         )
     )
+
+
+def build_cpu(root: str, layout: str = "intel_hybrid") -> Dict[str, str]:
+    """Create a fake CPU topology, /proc/stat and a coretemp hwmon device.
+
+    Layouts:
+      intel_hybrid - i5-13600KF: 6 P-cores with SMT, 8 E-cores, cpu/types/
+      intel_pmu    - the same part on a kernel without cpu/types/
+      intel_lpe    - Meteor Lake style: P + E + low power E on the SoC tile
+      amd_dense    - Zen5 + Zen5c: no core type in sysfs, only lower clocks
+      uniform      - a plain 4-core part, which must not be split at all
+    """
+    cpu_root = os.path.join(root, "devices", "system", "cpu")
+    pmu_root = os.path.join(root, "devices")
+    hwmon_root = os.path.join(root, "class", "hwmon")
+    proc_stat = os.path.join(root, "proc", "stat")
+    cpuinfo = os.path.join(root, "proc", "cpuinfo")
+
+    # (core_id, [cpu ids], max kHz, current kHz)
+    if layout in ("intel_hybrid", "intel_pmu"):
+        model = "13th Gen Intel(R) Core(TM) i5-13600KF"
+        cores = [(cid, [i * 2, i * 2 + 1], 5100000, 4900000)
+                 for i, cid in enumerate((0, 4, 8, 12, 16, 20))]
+        cores += [(24 + i, [12 + i], 3900000, 3700000) for i in range(8)]
+        performance, efficiency, low_power = "0-11", "12-19", None
+    elif layout == "intel_lpe":
+        model = "Intel(R) Core(TM) Ultra 7 155H"
+        cores = [(cid, [i * 2, i * 2 + 1], 4800000, 4500000)
+                 for i, cid in enumerate((0, 4, 8, 12, 16, 20))]
+        cores += [(24 + i, [12 + i], 3800000, 3600000) for i in range(8)]
+        cores += [(32 + i, [20 + i], 2500000, 2100000) for i in range(2)]
+        performance, efficiency, low_power = "0-11", "12-19", "20-21"
+    elif layout == "amd_dense":
+        model = "AMD Ryzen AI 9 HX 370 w/ Radeon 890M"
+        cores = [(i, [i * 2, i * 2 + 1], 5100000, 4800000) for i in range(4)]
+        cores += [(4 + i, [8 + i * 2, 9 + i * 2], 3300000, 3100000) for i in range(8)]
+        performance = efficiency = low_power = None
+    else:
+        model = "Intel(R) Xeon(R) CPU E5-2680"
+        cores = [(i, [i], 3000000, 2600000) for i in range(4)]
+        performance = efficiency = low_power = None
+
+    for core_id, cpus, max_khz, cur_khz in cores:
+        for cpu in cpus:
+            base = os.path.join(cpu_root, f"cpu{cpu}")
+            _write(os.path.join(base, "topology", "core_id"), core_id)
+            _write(os.path.join(base, "topology", "physical_package_id"), 0)
+            _write(os.path.join(base, "cpufreq", "cpuinfo_max_freq"), max_khz)
+            _write(os.path.join(base, "cpufreq", "scaling_cur_freq"), cur_khz)
+
+    if performance:
+        _write(os.path.join(pmu_root, "cpu_core", "cpus"), performance)
+    if efficiency:
+        _write(os.path.join(pmu_root, "cpu_atom", "cpus"), efficiency)
+    if layout == "intel_hybrid":
+        _write(os.path.join(cpu_root, "types", "intel_core_0", "cpulist"), performance)
+        _write(os.path.join(cpu_root, "types", "intel_atom_0", "cpulist"), efficiency)
+    if layout == "intel_lpe":
+        # no cpu/types/ here: the low power cores must be found by speed
+        _write(os.path.join(pmu_root, "cpu_atom", "cpus"), f"{efficiency},{low_power}")
+
+    # coretemp: one channel per physical core, labelled with the topology id
+    coretemp = os.path.join(hwmon_root, "hwmon0")
+    _write(os.path.join(coretemp, "name"), "coretemp")
+    _write(os.path.join(coretemp, "temp1_label"), "Package id 0")
+    _write(os.path.join(coretemp, "temp1_input"), 46000)
+    _write(os.path.join(coretemp, "temp1_crit"), 100000)
+    for position, (core_id, _, _, _) in enumerate(cores):
+        index = position + 2
+        _write(os.path.join(coretemp, f"temp{index}_label"), f"Core {core_id}")
+        _write(os.path.join(coretemp, f"temp{index}_input"), 41000 + position * 500)
+        _write(os.path.join(coretemp, f"temp{index}_crit"), 100000)
+
+    all_cpus = sorted(cpu for _, cpus, _, _ in cores for cpu in cpus)
+    lines = ["cpu  100 0 100 800 0 0 0 0 0 0"]
+    lines += [f"cpu{cpu} 10 0 10 80 0 0 0 0 0 0" for cpu in all_cpus]
+    lines.append("intr 0")
+    _write(proc_stat, "\n".join(lines))
+    _write(cpuinfo, f"processor\t: 0\nmodel name\t: {model}\n")
+
+    return {
+        "cpu_root": cpu_root,
+        "pmu_root": pmu_root,
+        "hwmon_root": hwmon_root,
+        "proc_stat": proc_stat,
+        "cpuinfo": cpuinfo,
+    }
+
+
+def advance_proc_stat(path: str, busy: int = 10, idle: int = 90) -> None:
+    """Add ticks to every /proc/stat row, so a second sample has a delta."""
+    out = []
+    for line in open(path).read().splitlines():
+        fields = line.split()
+        if fields and fields[0].startswith("cpu") and len(fields) >= 5:
+            values = [int(v) for v in fields[1:11]]
+            values[0] += busy
+            values[3] += idle
+            out.append(" ".join([fields[0]] + [str(v) for v in values]))
+        else:
+            out.append(line)
+    with open(path, "w") as fh:
+        fh.write("\n".join(out) + "\n")

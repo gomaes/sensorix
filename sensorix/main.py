@@ -17,6 +17,8 @@ from .sensors.collector import (
     Collector,
     CollectorConfig,
 )
+from .sensors.cpu import DEFAULT_PROC_STAT
+from .sensors.cputopo import DEFAULT_CPU_ROOT, DEFAULT_PMU_ROOT
 from .sensors.devinfo import DEFAULT_CPUINFO, DEFAULT_DMI_ROOT
 from .sensors.disk import DEFAULT_BLOCK_ROOT
 from .sensors.hwmon import DEFAULT_DRM_ROOT, DEFAULT_HWMON_ROOT
@@ -57,6 +59,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-nvidia", action="store_true", help="nvidia-smi を使わない")
     parser.add_argument("--no-net", action="store_true", help="NIC の通信速度を表示しない")
     parser.add_argument("--no-disk", action="store_true", help="ディスクの転送速度を表示しない")
+    parser.add_argument(
+        "--no-cpu",
+        action="store_true",
+        help="CPU のコア別クロック・負荷率とコア種別のグループ分けを行わない",
+    )
     parser.add_argument("--always-on-top", action="store_true", help="常に最前面で起動する")
     parser.add_argument(
         "--hwmon-root", default=DEFAULT_HWMON_ROOT, help=argparse.SUPPRESS
@@ -67,6 +74,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dmi-root", default=DEFAULT_DMI_ROOT, help=argparse.SUPPRESS)
     parser.add_argument("--cpuinfo", default=DEFAULT_CPUINFO, help=argparse.SUPPRESS)
     parser.add_argument("--pci-ids", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--cpu-root", default=DEFAULT_CPU_ROOT, help=argparse.SUPPRESS)
+    parser.add_argument("--pmu-root", default=DEFAULT_PMU_ROOT, help=argparse.SUPPRESS)
+    parser.add_argument("--proc-stat", default=DEFAULT_PROC_STAT, help=argparse.SUPPRESS)
     parser.add_argument(
         "-l",
         "--list",
@@ -95,6 +105,10 @@ def _config_from(args: argparse.Namespace) -> CollectorConfig:
         enable_nvidia=not args.no_nvidia,
         enable_net=not args.no_net,
         enable_disk=not args.no_disk,
+        enable_cpu=not args.no_cpu,
+        cpu_root=args.cpu_root,
+        pmu_root=args.pmu_root,
+        proc_stat=args.proc_stat,
     )
 
 
@@ -106,13 +120,21 @@ def format_sample(sample: Sample, threshold: float, color: bool) -> str:
     for group in sample.groups:
         lines.append(f"{bold}{group.name}{off}  {dim}[{group.detail}]{off}")
         lines.append(f"{dim}  {header}{off}")
+        names = dict(group.sections)
+        current = None
         for reading in group.readings:
+            if reading.section != current:
+                current = reading.section
+                if current is not None:
+                    lines.append(f"  {bold}{names.get(current, current)}{off}")
             stats = reading.stats
             minimum = reading.format(stats.minimum) if stats else "-"
             maximum = reading.format(stats.maximum) if stats else "-"
             average = reading.format(stats.average) if stats else "-"
+            indent = "    " if reading.section is not None else "  "
+            width = 30 - len(indent)
             row = (
-                f"  {reading.label[:28].ljust(28)}"
+                f"{indent}{reading.label[:width].ljust(width)}"
                 f"{reading.text:>12}{minimum:>12}{maximum:>12}{average:>12}"
             )
             lines.append(f"{red}{row}{off}" if reading.is_alarm(threshold) else row)

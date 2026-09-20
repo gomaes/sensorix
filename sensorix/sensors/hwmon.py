@@ -16,7 +16,9 @@ import re
 from dataclasses import replace
 from typing import Dict, List, Optional, Tuple
 
+from . import cpu as cpu_backend
 from . import devinfo
+from .cputopo import CpuTopology
 from .devinfo import DeviceNamer
 from .model import Group, Reading, sort_readings
 
@@ -38,6 +40,7 @@ SENSOR_TYPES: Dict[str, Tuple[str, float, str]] = {
 _INPUT_RE = re.compile(r"^(%s)(\d+)_input$" % "|".join(SENSOR_TYPES))
 _PWM_RE = re.compile(r"^pwm(\d+)$")
 _GENERIC_TEMP_RE = re.compile(r"^Temp \d+$")
+_PACKAGE_LABEL_RE = re.compile(r"^Package id (\d+)$")
 
 #: Chip names that are noisy and carry no real sensor value.
 _BORING_CHIPS = {"acpitz_dummy"}
@@ -156,6 +159,7 @@ def read_hwmon(
     hwmon_root: str = DEFAULT_HWMON_ROOT,
     drm_root: str = DEFAULT_DRM_ROOT,
     namer: Optional[DeviceNamer] = None,
+    topology: Optional[CpuTopology] = None,
 ) -> Tuple[List[Group], List[str]]:
     """Scan every hwmon device.  Returns (groups, non-fatal error messages)."""
     namer = namer or DeviceNamer()
@@ -179,7 +183,7 @@ def read_hwmon(
             continue
         hwmon_dir = os.path.join(hwmon_root, entry)
         try:
-            group = _read_device(hwmon_dir, entry, cards, drm_root, namer)
+            group = _read_device(hwmon_dir, entry, cards, drm_root, namer, topology)
         except OSError as exc:
             errors.append(f"{entry}: {exc}")
             continue
@@ -197,6 +201,7 @@ def _read_device(
     cards: Dict[str, str],
     drm_root: str,
     namer: DeviceNamer,
+    topology: Optional[CpuTopology] = None,
 ) -> Optional[Group]:
     name = _read_text(os.path.join(hwmon_dir, "name")) or entry
     if name in _BORING_CHIPS:
@@ -262,6 +267,16 @@ def _read_device(
     device_link = os.path.join(hwmon_dir, "device")
     device_dir = os.path.realpath(device_link) if os.path.exists(device_link) else None
 
+    # A CPU chip's channels are split by core type, so that the P-cores and the
+    # E-cores of a hybrid part are not interleaved in one flat list.
+    sections: Tuple[Tuple[str, str], ...] = ()
+    cpu_merge_key: Optional[str] = None
+    if topology is not None and name.lower() in devinfo.CPU_CHIPS:
+        package_id = _package_id(readings)
+        sections = topology.section_list(package_id)
+        readings = cpu_backend.assign_sections(readings, topology, package_id)
+        cpu_merge_key = f"cpu:{package_id}"
+
     described = namer.describe_chip(name, device_dir)
     display, extra = described if described is not None else (None, None)
 
@@ -274,9 +289,9 @@ def _read_device(
         ]
     # Only fold an hwmon chip into another group when it really describes one
     # physical device; a Super-I/O chip shares its parent with unrelated nodes.
-    merge_key = (
-        f"dev:{device_dir}" if device_dir and name.lower() in devinfo.DISK_CHIPS else None
-    )
+    merge_key = cpu_merge_key
+    if merge_key is None and device_dir and name.lower() in devinfo.DISK_CHIPS:
+        merge_key = f"dev:{device_dir}"
 
     detail = [name] if display else []
     if extra:
@@ -288,6 +303,16 @@ def _read_device(
         name=display or name,
         detail=" · ".join(detail),
         chip=name,
-        readings=sort_readings(readings),
+        readings=sort_readings(readings, sections),
         merge_key=merge_key,
+        sections=sections,
     )
+
+
+def _package_id(readings: List[Reading]) -> int:
+    """coretemp labels its package channel "Package id 0"."""
+    for reading in readings:
+        match = _PACKAGE_LABEL_RE.match(reading.label)
+        if match is not None:
+            return int(match.group(1))
+    return 0

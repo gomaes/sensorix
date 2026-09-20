@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field, replace
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 
 @dataclass(frozen=True)
@@ -114,6 +114,9 @@ class Reading:
     #: (a SATA link is Gb/s while an Ethernet link is Mb/s).
     unit_override: Optional[str] = None
     precision_override: Optional[int] = None
+    #: Key of the group section this row belongs under, e.g. "pcore".
+    #: None puts the row directly under the group, above every section.
+    section: Optional[str] = None
 
     @property
     def unit(self) -> str:
@@ -162,6 +165,10 @@ class Group:
     #: Groups sharing a non-None merge key describe one physical device and are
     #: folded together, e.g. an NVMe drive's temperature and its throughput.
     merge_key: Optional[str] = None
+    #: Ordered (key, display name) pairs for the sub-headings this group shows,
+    #: e.g. (("pcore", "P-Cores"), ("ecore", "E-Cores")).  Empty means the
+    #: readings are listed directly under the group, as most devices do.
+    sections: Tuple[Tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -177,9 +184,37 @@ class Sample:
         return sum(len(g.readings) for g in self.groups)
 
 
-def sort_readings(readings: Iterable[Reading]) -> List[Reading]:
-    """Group rows by kind (temps first, then fans, voltages, ...)."""
-    return sorted(readings, key=lambda r: (kind_of(r.kind).order, _natural(r.label)))
+def sort_readings(
+    readings: Iterable[Reading],
+    sections: Sequence[Tuple[str, str]] = (),
+) -> List[Reading]:
+    """Order rows by section, then by kind (temps, fans, voltages, ...).
+
+    Rows without a section sort first, so a summary row such as the overall CPU
+    load stays at the top of the group.
+    """
+    order = {key: position for position, (key, _) in enumerate(sections)}
+    return sorted(
+        readings,
+        key=lambda r: (
+            order.get(r.section, -1) if r.section is not None else -1,
+            kind_of(r.kind).order,
+            _natural(r.label),
+        ),
+    )
+
+
+def merge_sections(
+    left: Sequence[Tuple[str, str]], right: Sequence[Tuple[str, str]]
+) -> Tuple[Tuple[str, str], ...]:
+    """Union two section lists, keeping the order they were declared in."""
+    out: List[Tuple[str, str]] = list(left)
+    seen = {key for key, _ in out}
+    for entry in right:
+        if entry[0] not in seen:
+            seen.add(entry[0])
+            out.append(entry)
+    return tuple(out)
 
 
 def _natural(text: str):

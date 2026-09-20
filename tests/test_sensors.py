@@ -123,6 +123,7 @@ def test_collector_attaches_stats_and_survives_a_broken_backend():
                 # this test is about stats and error containment only
                 enable_net=False,
                 enable_disk=False,
+                enable_cpu=False,
             )
         )
         first = collector.sample()

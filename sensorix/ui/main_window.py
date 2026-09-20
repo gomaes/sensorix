@@ -39,6 +39,7 @@ _VALUE_BRUSH = QBrush(QColor(theme.VALUE_TEXT))
 _STAT_BRUSH = QBrush(QColor(theme.TEXT_DIM))
 _NAME_BRUSH = QBrush(QColor(theme.TEXT))
 _GROUP_BRUSH = QBrush(QColor(theme.GROUP_TEXT))
+_SECTION_BRUSH = QBrush(QColor(theme.ACCENT))
 
 _ROLE_ALARM = Qt.ItemDataRole.UserRole + 1
 
@@ -70,6 +71,7 @@ class MainWindow(QMainWindow):
         self._last_sample: Optional[Sample] = None
         self._busy = False
         self._group_items: Dict[str, QTreeWidgetItem] = {}
+        self._section_items: Dict[str, QTreeWidgetItem] = {}
         self._reading_items: Dict[str, QTreeWidgetItem] = {}
         self._warned_about_empty = False
         self._show_chips = self._settings.value("view/showChipNames", False, type=bool)
@@ -79,6 +81,8 @@ class MainWindow(QMainWindow):
         self._mono.setPointSize(max(8, self._mono.pointSize() - 1))
         self._group_font = QFont()
         self._group_font.setBold(True)
+        self._section_font = QFont()
+        self._section_font.setBold(True)
 
         self._build_tree()
         self._build_menu()
@@ -257,6 +261,7 @@ class MainWindow(QMainWindow):
 
     def _sync_tree(self, groups: List[Group]) -> None:
         seen_groups = set()
+        seen_sections = set()
         seen_readings = set()
 
         for position, group in enumerate(groups):
@@ -272,11 +277,19 @@ class MainWindow(QMainWindow):
             item.setText(COL_NAME, self._group_label(group))
             item.setToolTip(COL_NAME, self._group_tooltip(group))
 
+            # Readings arrive already ordered by section, so appending as we
+            # go puts the section headers in their declared order.
+            section_names = dict(group.sections)
             for reading in group.readings:
                 seen_readings.add(reading.key)
+                parent = item
+                if reading.section is not None:
+                    parent = self._section_item(
+                        group, item, reading.section, section_names, seen_sections
+                    )
                 child = self._reading_items.get(reading.key)
                 if child is None:
-                    child = QTreeWidgetItem(item)
+                    child = QTreeWidgetItem(parent)
                     child.setForeground(COL_NAME, _NAME_BRUSH)
                     for column in (COL_VALUE, COL_MIN, COL_MAX, COL_AVG):
                         child.setFont(column, self._mono)
@@ -290,15 +303,36 @@ class MainWindow(QMainWindow):
                     child.setText(COL_NAME, reading.label)
                     child.setToolTip(COL_NAME, f"{group.name} · {reading.key}")
                     self._reading_items[reading.key] = child
-                elif child.parent() is not item:
-                    # The chip moved between sources (hwmon <-> lm_sensors).
+                elif child.parent() is not parent:
+                    # The row moved between sources, or gained a section once
+                    # the CPU topology became available.
                     old_parent = child.parent()
                     if old_parent is not None:
                         old_parent.removeChild(child)
-                    item.addChild(child)
+                    parent.addChild(child)
                 self._update_row(child, reading)
 
-        self._prune(seen_groups, seen_readings)
+        self._prune(seen_groups, seen_sections, seen_readings)
+
+    def _section_item(
+        self,
+        group: Group,
+        group_item: QTreeWidgetItem,
+        key: str,
+        names: Dict[str, str],
+        seen: set,
+    ) -> QTreeWidgetItem:
+        full_key = f"{group.key}#{key}"
+        seen.add(full_key)
+        node = self._section_items.get(full_key)
+        if node is None:
+            node = QTreeWidgetItem(group_item)
+            node.setFont(COL_NAME, self._section_font)
+            node.setForeground(COL_NAME, _SECTION_BRUSH)
+            self._section_items[full_key] = node
+            node.setExpanded(True)
+        node.setText(COL_NAME, names.get(key, key))
+        return node
 
     def _group_label(self, group: Group) -> str:
         if self._show_chips and group.chip:
@@ -343,10 +377,15 @@ class MainWindow(QMainWindow):
             item.setForeground(COL_MAX, _STAT_BRUSH)
             item.setForeground(COL_AVG, _STAT_BRUSH)
 
-    def _prune(self, seen_groups, seen_readings) -> None:
+    def _prune(self, seen_groups, seen_sections, seen_readings) -> None:
         """Drop rows for hardware that disappeared (USB device unplugged, ...)."""
         for key in [k for k in self._reading_items if k not in seen_readings]:
             item = self._reading_items.pop(key)
+            parent = item.parent()
+            if parent is not None:
+                parent.removeChild(item)
+        for key in [k for k in self._section_items if k not in seen_sections]:
+            item = self._section_items.pop(key)
             parent = item.parent()
             if parent is not None:
                 parent.removeChild(item)
@@ -397,6 +436,7 @@ class MainWindow(QMainWindow):
     def _reset_view(self) -> None:
         self.tree.clear()
         self._group_items.clear()
+        self._section_items.clear()
         self._reading_items.clear()
 
     def _edit_threshold(self) -> None:
@@ -484,13 +524,21 @@ class MainWindow(QMainWindow):
             lines.append(
                 f"  {'Name'.ljust(width)}{'Value':>12}{'Min':>12}{'Max':>12}{'Avg':>12}"
             )
+            names = dict(group.sections)
+            current = None
             for reading in group.readings:
+                if reading.section != current:
+                    current = reading.section
+                    if current is not None:
+                        lines.append(f"  [{names.get(current, current)}]")
                 stats = reading.stats
                 minimum = reading.format(stats.minimum) if stats else "-"
                 maximum = reading.format(stats.maximum) if stats else "-"
                 average = reading.format(stats.average) if stats else "-"
+                indent = "    " if reading.section is not None else "  "
+                label = reading.label[:width].ljust(width - (len(indent) - 2))
                 lines.append(
-                    f"  {reading.label[:width].ljust(width)}"
+                    f"{indent}{label}"
                     f"{reading.text:>12}{minimum:>12}{maximum:>12}{average:>12}"
                 )
             lines.append("")

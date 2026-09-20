@@ -6,6 +6,10 @@ Arch Linux 向けのハードウェアモニターです。Windows の CPUID **H
 
 ![スクリーンショット](docs/screenshot.png)
 
+CPU はコア種別ごとにまとまります (i5-13600KF の例):
+
+![CPU のスクリーンショット](docs/screenshot-cpu.png)
+
 ## 特徴
 
 - **依存なしで動く主経路** — `/sys/class/hwmon/hwmon*/` の `tempN_input` /
@@ -14,6 +18,10 @@ Arch Linux 向けのハードウェアモニターです。Windows の CPUID **H
   `Samsung SSD 980 PRO 1TB` / `Radeon RX 7800 XT` / `AMD Ryzen 7 7800X3D` /
   `ASUSTeK PRIME B650-PLUS` のように実機の型番を解決して表示します
   (表示メニューでドライバ名に戻せます)
+- **CPU をコア種別で分けて表示** — Intel の P / E / LPE コア、AMD の通常 / 高密度 (c)
+  コアをセクションに分け、コアごとに**温度・クロック・負荷率**を表示します。
+  コア番号は種別ごとに 0 から振り直すので、`coretemp` が出す
+  `Core 0, 4, 8 … 24, 25` のような飛び番になりません
 - **NIC の通信速度** — 各インターフェースの Download / Upload (MB/s) と
   リンク速度 (Mb/s)
 - **ディスクの転送速度** — NVMe / SATA SSD / HDD の Read / Write (MB/s)、
@@ -174,6 +182,7 @@ sensorix [-i 秒] [-t °C] [-s auto|hwmon|sensors] [--no-nvidia] [--always-on-to
 | `--no-nvidia` | `nvidia-smi` を呼ばない |
 | `--no-net` | NIC の通信速度を表示しない |
 | `--no-disk` | ディスクの転送速度を表示しない |
+| `--no-cpu` | コア別のクロック・負荷率とコア種別の分類を行わない |
 | `--always-on-top` | 最前面固定で起動 |
 | `-l`, `--list` | **GUI を起動せず**、検出結果を一覧表示して終了 |
 | `-w`, `--watch` | **GUI を起動せず**、端末上で更新し続ける (Ctrl+C で終了) |
@@ -231,6 +240,38 @@ sensorix [-i 秒] [-t °C] [-s auto|hwmon|sensors] [--no-nvidia] [--always-on-to
 (`device` シンボリックリンクを持たないため) 自動的に除外されます。
 起動直後の 1 回目は差分が取れないため 0 MB/s から始まります。
 
+### CPU のコア種別と番号
+
+`coretemp` のチャンネル名 `Core N` の `N` はトポロジの **core_id** であって、
+コアの通し番号ではありません。ハイブリッド構成ではこれが飛び番になります
+(i5-13600KF なら P コアが 0, 4, 8, 12, 16, 20、E コアが 24〜31)。
+Sensorix は core_id を実際のコアに対応付けて、**種別ごとに 0 から番号を振り直します**。
+
+コア種別の判定は、確実な情報源から順に試します。
+
+| 順 | 情報源 | 対象 |
+| --- | --- | --- |
+| 1 | `/sys/devices/system/cpu/types/*/cpulist` | Linux 6.13 以降のハイブリッド CPU |
+| 2 | `/sys/devices/cpu_core/cpus` と `/sys/devices/cpu_atom/cpus` | Alder Lake 以降 (それ以前のカーネル) |
+| 3 | `cpufreq/cpuinfo_max_freq` (無ければ `acpi_cppc/highest_perf`) の段 | 上記が無い環境、および AMD |
+
+- **LPE コア** (Meteor Lake 以降の SoC タイル上の低電力 E コア) は、`cpu_atom` に
+  含まれるコアを最大クロックで 2 段に分け、低いほうを LPE として扱います
+- **AMD の c コア** (Zen4c / Zen5c) は、カーネルがコア種別を公開していないため
+  **最大クロックの段差から推定**します。段が 2 つあり、かつ低いほうが高いほうの
+  85% 未満で、それぞれ 2 コア以上ある場合のみ分割します。AMD の preferred core
+  によるコアごとの僅かなブースト差を誤検出しないよう、5% 以内は同じ段として扱います
+- 段が 1 つしか無い通常の CPU は分割せず `Cores` のみになります
+
+> **注意:** AMD の c コア判定と LPE コア判定は上記のヒューリスティックによるもので、
+> 疑似 sysfs でのテストのみ行っています。実機で意図しない分割が起きる場合は
+> `--no-cpu` で無効化できます。
+
+クロックは `cpufreq/scaling_cur_freq`、負荷率は `/proc/stat` の CPU 別の行から
+差分で算出します。SMT 有効時、1 物理コアのクロックは 2 スレッドの最大値、
+負荷率は平均値です。AMD の `k10temp` のようにコア単位でない温度 (`Tctl`, `Tccd1`)
+は `Package` セクションにまとめられます。
+
 ### デバイス名の解決方法
 
 ドライバ名をそのまま出さず、次の順に「具体的なもの」から解決します。
@@ -280,6 +321,8 @@ sudo pacman -S hwdata      # 多くの場合 pciutils と一緒に導入済み
 | GPU/NIC がドライバ名のまま | `sudo pacman -S hwdata` で pci.ids を導入 |
 | 正体不明のチップ名が出る | 表示メニューの「チップ名で表示」を切り、ツールチップで sysfs のパスを確認してください。対応を追加するので issue で知らせてください |
 | ディスク / NIC を出したくない | `--no-disk` / `--no-net` を付けて起動 |
+| コアのクロックが出ない | `cpufreq` が無い環境 (VM など) です。温度と負荷率は表示されます |
+| コア種別の分割がおかしい | `--no-cpu` で無効化できます。判定根拠は「CPU のコア種別と番号」を参照 |
 
 デスクトップ統合がうまくいかないときは、診断コマンドで原因を切り分けられます。
 
@@ -298,6 +341,7 @@ sudo pacman -S hwdata      # 多くの場合 pciutils と一緒に導入済み
 ```bash
 python3 tests/test_sensors.py     # 追加パッケージ不要
 python3 tests/test_devices.py
+python3 tests/test_cpu.py
 # または
 uv pip install -e '.[dev]' && pytest
 ```
@@ -332,6 +376,8 @@ sensorix/
 │   ├── nvidia.py        nvidia-smi
 │   ├── disk.py          /sys/block の転送速度・ビジー率・リンク速度
 │   ├── net.py           /sys/class/net の通信速度・リンク速度
+│   ├── cpu.py           コア別クロック・負荷率
+│   ├── cputopo.py       コアの対応付けと P/E/LPE・通常/高密度コアの判定
 │   ├── devinfo.py       ドライバ名 → 実機の型番 の解決
 │   ├── pciids.py        pci.ids のパーサ (必要なベンダーのみ遅延読み込み)
 │   └── collector.py     各バックエンドの統合、同一デバイスの統合、例外の封じ込め
