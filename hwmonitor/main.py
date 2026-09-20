@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from typing import List
 
 from . import APP_NAME, __version__
+from .desktop import ICON_NAME
 from .sensors.collector import (
     SOURCE_AUTO,
     SOURCE_HWMON,
@@ -15,7 +17,11 @@ from .sensors.collector import (
     Collector,
     CollectorConfig,
 )
+from .sensors.devinfo import DEFAULT_CPUINFO, DEFAULT_DMI_ROOT
+from .sensors.disk import DEFAULT_BLOCK_ROOT
 from .sensors.hwmon import DEFAULT_DRM_ROOT, DEFAULT_HWMON_ROOT
+from .sensors.net import DEFAULT_NET_ROOT
+from .sensors.pciids import SEARCH_PATHS
 from .sensors.model import Sample
 
 
@@ -49,11 +55,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="センサーの取得元 (既定: auto = hwmon、駄目なら lm_sensors)",
     )
     parser.add_argument("--no-nvidia", action="store_true", help="nvidia-smi を使わない")
+    parser.add_argument("--no-net", action="store_true", help="NIC の通信速度を表示しない")
+    parser.add_argument("--no-disk", action="store_true", help="ディスクの転送速度を表示しない")
     parser.add_argument("--always-on-top", action="store_true", help="常に最前面で起動する")
     parser.add_argument(
         "--hwmon-root", default=DEFAULT_HWMON_ROOT, help=argparse.SUPPRESS
     )
     parser.add_argument("--drm-root", default=DEFAULT_DRM_ROOT, help=argparse.SUPPRESS)
+    parser.add_argument("--net-root", default=DEFAULT_NET_ROOT, help=argparse.SUPPRESS)
+    parser.add_argument("--block-root", default=DEFAULT_BLOCK_ROOT, help=argparse.SUPPRESS)
+    parser.add_argument("--dmi-root", default=DEFAULT_DMI_ROOT, help=argparse.SUPPRESS)
+    parser.add_argument("--cpuinfo", default=DEFAULT_CPUINFO, help=argparse.SUPPRESS)
+    parser.add_argument("--pci-ids", default=None, help=argparse.SUPPRESS)
     parser.add_argument(
         "-l",
         "--list",
@@ -73,8 +86,15 @@ def _config_from(args: argparse.Namespace) -> CollectorConfig:
     return CollectorConfig(
         hwmon_root=args.hwmon_root,
         drm_root=args.drm_root,
+        net_root=args.net_root,
+        block_root=args.block_root,
+        dmi_root=args.dmi_root,
+        cpuinfo=args.cpuinfo,
+        pci_ids_paths=(args.pci_ids,) if args.pci_ids else tuple(SEARCH_PATHS),
         source=args.source,
         enable_nvidia=not args.no_nvidia,
+        enable_net=not args.no_net,
+        enable_disk=not args.no_disk,
     )
 
 
@@ -124,6 +144,14 @@ def run_headless(args: argparse.Namespace) -> int:
 
 
 def run_gui(args: argparse.Namespace) -> int:
+    # Qt's xcb plugin takes the X11 WM_CLASS instance name from $RESOURCE_NAME,
+    # and falls back to the basename of argv[0] - which is "python3" when the
+    # app is started as `python -m hwmonitor`. KDE's task manager matches the
+    # window against StartupWMClass in hwmonitor.desktop, so without this the
+    # window cannot be pinned to the panel as HWMonitor. Must be set before
+    # QApplication is constructed, and regardless of how we were launched.
+    os.environ.setdefault("RESOURCE_NAME", ICON_NAME)
+
     try:
         from PySide6.QtWidgets import QApplication
     except ImportError:
@@ -137,7 +165,7 @@ def run_gui(args: argparse.Namespace) -> int:
         return 2
 
     from .ui import theme
-    from .ui.icons import ICON_NAME, app_icon
+    from .ui.icons import app_icon
     from .ui.main_window import MainWindow
 
     app = QApplication(sys.argv)

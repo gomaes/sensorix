@@ -10,8 +10,15 @@ Arch Linux 向けの、CPUID **HWMonitor** (Windows) によく似たハードウ
 
 - **依存なしで動く主経路** — `/sys/class/hwmon/hwmon*/` の `tempN_input` /
   `fanN_input` / `inN_input` などを直接読むので、root 権限もデーモンも不要です
-- 各 hwmon デバイスの `name` (`k10temp`, `it8688`, `nvme`, `amdgpu` …) が
-  ツリーのトップレベル項目になります
+- **デバイス名で表示** — `nvme` / `amdgpu` のようなドライバ名ではなく、
+  `Samsung SSD 980 PRO 1TB` / `Radeon RX 7800 XT` / `AMD Ryzen 7 7800X3D` /
+  `ASUSTeK PRIME B650-PLUS` のように実機の型番を解決して表示します
+  (表示メニューでドライバ名に戻せます)
+- **NIC の通信速度** — 各インターフェースの Download / Upload (MB/s) と
+  リンク速度 (Mb/s)
+- **ディスクの転送速度** — NVMe / SATA SSD / HDD の Read / Write (MB/s)、
+  ビジー率、リンク速度 (SATA は 6.0 Gb/s、NVMe は PCIe の GT/s)。
+  温度と同じデバイス項目にまとめて表示されます
 - **Min / Max / Avg** を起動時から連続的に集計 (メニューからリセット可能)
 - 温度がしきい値 (既定 80 °C) を超えた行を**赤字**で表示。
   `tempN_crit` / `tempN_emergency` / `tempN_max` を公開しているチップは、
@@ -165,6 +172,8 @@ hwmonitor [-i 秒] [-t °C] [-s auto|hwmon|sensors] [--no-nvidia] [--always-on-t
 | `-t`, `--threshold °C` | 赤字にする温度のしきい値 (既定 80) |
 | `-s`, `--source` | `auto` (既定) / `hwmon` / `sensors` |
 | `--no-nvidia` | `nvidia-smi` を呼ばない |
+| `--no-net` | NIC の通信速度を表示しない |
+| `--no-disk` | ディスクの転送速度を表示しない |
 | `--always-on-top` | 最前面固定で起動 |
 | `-l`, `--list` | **GUI を起動せず**、検出結果を一覧表示して終了 |
 | `-w`, `--watch` | **GUI を起動せず**、端末上で更新し続ける (Ctrl+C で終了) |
@@ -186,7 +195,7 @@ hwmonitor [-i 秒] [-t °C] [-s auto|hwmon|sensors] [--no-nvidia] [--always-on-t
 | メニュー | 項目 |
 | --- | --- |
 | ファイル | 監視データを保存 (`Ctrl+S`) / 終了 (`Ctrl+Q`) |
-| 表示 | **常に最前面に表示** (`Ctrl+T`) / すべて展開 / すべて折りたたむ |
+| 表示 | **常に最前面に表示** (`Ctrl+T`) / **チップ名で表示** / すべて展開 / すべて折りたたむ |
 | 計測 | Min/Max/Avg をリセット (`Ctrl+R`) / 更新間隔 / データ取得元 / 温度の警告しきい値 |
 | ヘルプ | 診断情報 (取得元と警告の一覧) / バージョン情報 |
 
@@ -206,6 +215,37 @@ hwmonitor [-i 秒] [-t °C] [-s auto|hwmon|sensors] [--no-nvidia] [--always-on-t
 センサー名は `tempN_label` があればそれを使い (例: `Tctl`, `Tccd1`, `edge`, `junction`)、
 無ければ `Temp 1`, `Fan 2` のような既定名になります。
 
+### 通信速度・転送速度
+
+| 項目 | 取得元 | 表示 |
+| --- | --- | --- |
+| Download / Upload | `/sys/class/net/<if>/statistics/{rx,tx}_bytes` の差分 | MB/s |
+| Link Speed (NIC) | `/sys/class/net/<if>/speed` | Mb/s |
+| Read / Write | `/sys/block/<dev>/stat` のセクタ数の差分 (1 セクタ = 512 B) | MB/s |
+| Activity | `/sys/block/<dev>/stat` の `io_ticks` の差分 | % |
+| Link Speed (SATA) | `ata*/link*/ata_link/link*/sata_spd` | Gb/s |
+| Link Speed (NVMe) | PCIe の `current_link_speed` | GT/s |
+
+`lo` / `docker0` / `veth*` / `br*` などの仮想インターフェースと、
+`loop*` / `zram*` / `dm-*` / `md*` などの仮想ブロックデバイスは
+(`device` シンボリックリンクを持たないため) 自動的に除外されます。
+起動直後の 1 回目は差分が取れないため 0 MB/s から始まります。
+
+### デバイス名の解決方法
+
+| 対象 | 取得元 |
+| --- | --- |
+| CPU (`k10temp`, `coretemp` …) | `/proc/cpuinfo` の `model name` |
+| マザーボード (`it87`, `nct67` …) | DMI の `board_vendor` + `board_name` |
+| NVMe / SATA / HDD | sysfs の `model` (+ `vendor`) |
+| GPU / NIC など PCI デバイス | `/usr/share/hwdata/pci.ids` を参照 |
+
+pci.ids が無い環境ではドライバ名のまま表示されます。導入するには:
+
+```bash
+sudo pacman -S hwdata      # 多くの場合 pciutils と一緒に導入済み
+```
+
 ## 5. うまく動かないとき
 
 | 症状 | 対処 |
@@ -218,6 +258,18 @@ hwmonitor [-i 秒] [-t °C] [-s auto|hwmon|sensors] [--no-nvidia] [--always-on-t
 | メニューにアプリが出ない | ログアウト / ログイン。または `update-desktop-database ~/.local/share/applications` |
 | アイコンが既定のものになる | `gtk-update-icon-cache -f ~/.local/share/icons/hicolor` の後、再ログイン |
 | `hwmonitor` コマンドが無い | `~/.local/bin` を PATH に追加 (`export PATH="$HOME/.local/bin:$PATH"`) |
+| KDE でタスクバーに固定できない | `./install.sh` で入れた `hwmonitor` から起動してください (`python -m hwmonitor` で直接起動するとウィンドウクラスが `python3` になり、パネルがアプリを特定できません) |
+| GPU/NIC がドライバ名のまま | `sudo pacman -S hwdata` で pci.ids を導入 |
+| ディスク / NIC を出したくない | `--no-disk` / `--no-net` を付けて起動 |
+
+デスクトップ統合がうまくいかないときは、診断コマンドで原因を切り分けられます。
+
+```bash
+./install.sh --check
+```
+
+`.desktop` の場所と検証結果、`Exec` の実行可否、`StartupWMClass`、アイコンの有無、
+`XDG_*` 環境変数、メニューキャッシュ更新ツールの有無をまとめて表示します。
 | 権限エラー | hwmon は通常 root 不要です。特定ファイルだけ読めない場合、その項目は自動的にスキップされます |
 
 エラーはウィンドウ下部のステータスバーに表示され、**ヘルプ → 診断情報** で全文を確認できます。
@@ -226,6 +278,7 @@ hwmonitor [-i 秒] [-t °C] [-s auto|hwmon|sensors] [--no-nvidia] [--always-on-t
 
 ```bash
 python3 tests/test_sensors.py     # 追加パッケージ不要
+python3 tests/test_devices.py
 # または
 uv pip install -e '.[dev]' && pytest
 ```
@@ -233,8 +286,11 @@ uv pip install -e '.[dev]' && pytest
 センサーの無い環境 (VM / CI) で GUI を試すには、疑似 sysfs ツリーを使えます。
 
 ```bash
-python3 tests/fake_sysfs.py /tmp/fake-sys
-python -m hwmonitor --hwmon-root /tmp/fake-sys/class/hwmon --drm-root /tmp/fake-sys/class/drm
+python3 tests/fake_sysfs.py /tmp/fake-sys   # 使うオプションを出力します
+python -m hwmonitor --hwmon-root /tmp/fake-sys/class/hwmon \
+                    --drm-root   /tmp/fake-sys/class/drm \
+                    --net-root   /tmp/fake-sys/class/net \
+                    --block-root /tmp/fake-sys/block
 ```
 
 ### 構成
@@ -249,12 +305,17 @@ icons/hicolor/...        インストール用アイコン (16〜256px + scalabl
 tools/render_icons.py    SVG から PNG 一式を再生成する
 hwmonitor/
 ├── main.py              CLI、GUI 起動、--list / --watch
+├── desktop.py           .desktop / WM_CLASS / アイコン名の共通定数
 ├── sensors/
 │   ├── model.py         Reading / Group / Sample / Min-Max-Avg 集計
 │   ├── hwmon.py         /sys/class/hwmon の読み取り (主経路) + AMD/Intel GPU
 │   ├── lmsensors.py     sensors -j フォールバック
 │   ├── nvidia.py        nvidia-smi
-│   └── collector.py     各バックエンドの統合と例外の封じ込め
+│   ├── disk.py          /sys/block の転送速度・ビジー率・リンク速度
+│   ├── net.py           /sys/class/net の通信速度・リンク速度
+│   ├── devinfo.py       ドライバ名 → 実機の型番 の解決
+│   ├── pciids.py        pci.ids のパーサ (必要なベンダーのみ遅延読み込み)
+│   └── collector.py     各バックエンドの統合、同一デバイスの統合、例外の封じ込め
 └── ui/
     ├── theme.py         ダークテーマ
     ├── worker.py        別スレッドでのセンサー取得

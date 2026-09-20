@@ -10,22 +10,37 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from hwmonitor.sensors import lmsensors  # noqa: E402
 from hwmonitor.sensors.collector import Collector, CollectorConfig  # noqa: E402
+from hwmonitor.sensors.devinfo import DeviceNamer  # noqa: E402
 from hwmonitor.sensors.hwmon import read_hwmon  # noqa: E402
 from hwmonitor.sensors.model import StatsStore  # noqa: E402
+from hwmonitor.sensors.pciids import PciIds  # noqa: E402
 from tests.fake_sysfs import build  # noqa: E402
 
 
 def _fixture(tmp: str):
+    """hwmon groups resolved against the fixture machine, never the real host."""
     paths = build(tmp)
-    return read_hwmon(paths["hwmon_root"], paths["drm_root"])
+    namer = DeviceNamer(
+        dmi_root=paths["dmi_root"],
+        cpuinfo=paths["cpuinfo"],
+        pci_db=PciIds((paths["pci_ids"],)),
+    )
+    return read_hwmon(paths["hwmon_root"], paths["drm_root"], namer)
 
 
 def test_hwmon_groups_and_scaling():
     with tempfile.TemporaryDirectory() as tmp:
         groups, errors = _fixture(tmp)
         assert errors == [], errors
-        by_name = {g.name: g for g in groups}
-        assert set(by_name) == {"k10temp", "it8688", "nvme", "amdgpu"}, sorted(by_name)
+        # keyed by driver name; the display name is covered in test_devices.py
+        by_name = {g.chip: g for g in groups}
+        assert set(by_name) == {
+            "k10temp",
+            "it8688",
+            "nvme",
+            "amdgpu",
+            "drivetemp",
+        }, sorted(by_name)
 
         # a chip without a single readable channel is dropped, not reported
         assert "acpitz" not in by_name
@@ -57,7 +72,7 @@ def test_hwmon_groups_and_scaling():
 def test_gpu_group_is_annotated_and_extended():
     with tempfile.TemporaryDirectory() as tmp:
         groups, _ = _fixture(tmp)
-        gpu = next(g for g in groups if g.name == "amdgpu")
+        gpu = next(g for g in groups if g.chip == "amdgpu")
         assert "card0" in gpu.detail
         rows = {r.label: r for r in gpu.readings}
         assert rows["GPU Load"].text == "37 %"
@@ -102,6 +117,9 @@ def test_collector_attaches_stats_and_survives_a_broken_backend():
                 hwmon_root=paths["hwmon_root"],
                 drm_root=paths["drm_root"],
                 enable_nvidia=False,
+                # this test is about stats and error containment only
+                enable_net=False,
+                enable_disk=False,
             )
         )
         first = collector.sample()

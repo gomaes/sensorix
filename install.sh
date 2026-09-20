@@ -32,6 +32,7 @@ usage() {
   --system            システム全体にインストール (/usr/local, root 権限が必要)
   --prefix DIR        インストール先を明示 (既定: ユーザー=~/.local, system=/usr/local)
   --uninstall         アンインストールする
+  --check             インストール状態とデスクトップ統合を診断する
   --system-pyside     venv を作らず、OS の python-pyside6 を使う
   --venv              必ず venv を作って PySide6 を pip/uv で入れる
   --python PATH       使用する python 実行ファイル (既定: python3)
@@ -51,6 +52,7 @@ while [ $# -gt 0 ]; do
         --prefix)        PREFIX="${2:?--prefix にはディレクトリが必要です}"; shift ;;
         --prefix=*)      PREFIX="${1#*=}" ;;
         --uninstall|--remove) ACTION="uninstall" ;;
+        --check|--doctor)     ACTION="check" ;;
         --system-pyside) USE_SYSTEM_PYSIDE="yes" ;;
         --venv)          USE_SYSTEM_PYSIDE="no" ;;
         --python)        PYTHON_BIN="${2:?--python には実行ファイルが必要です}"; shift ;;
@@ -94,6 +96,114 @@ refresh_caches() {
         kbuildsycoca5 --noincremental >/dev/null 2>&1 || true
     fi
 }
+
+# ------------------------------------------------------------------ check ---
+ok()   { printf '  \033[1;32m OK \033[0m %s\n' "$*"; }
+ng()   { printf '  \033[1;31m NG \033[0m %s\n' "$*"; }
+info() { printf '       %s\n' "$*"; }
+
+if [ "$ACTION" = "check" ]; then
+    say "デスクトップ統合の診断"
+    echo
+    problems=0
+
+    echo "[1] デスクトップエントリ"
+    found_desktop=""
+    for dir in "${XDG_DATA_HOME:-$HOME/.local/share}/applications" \
+               /usr/local/share/applications /usr/share/applications; do
+        if [ -f "$dir/$APP_ID.desktop" ]; then
+            found_desktop="$dir/$APP_ID.desktop"
+            ok "$found_desktop"
+        fi
+    done
+    if [ -z "$found_desktop" ]; then
+        ng "$APP_ID.desktop がどこにも見つかりません → ./install.sh を実行してください"
+        problems=$((problems + 1))
+    elif command -v desktop-file-validate >/dev/null 2>&1; then
+        if desktop-file-validate "$found_desktop" 2>&1 | grep -q .; then
+            ng "desktop-file-validate が問題を報告しました:"
+            desktop-file-validate "$found_desktop" 2>&1 | sed 's/^/       /'
+            problems=$((problems + 1))
+        else
+            ok "desktop-file-validate: 問題なし"
+        fi
+    else
+        info "desktop-file-validate なし (pacman -S desktop-file-utils で検証できます)"
+    fi
+
+    echo
+    echo "[2] 実行ファイル"
+    if [ -n "$found_desktop" ]; then
+        exec_line="$(sed -n 's/^Exec=//p' "$found_desktop" | head -1 | awk "{print \$1}")"
+        if [ -x "$exec_line" ]; then
+            ok "Exec=$exec_line (実行可能)"
+        else
+            ng "Exec=$exec_line が実行できません → ./install.sh をやり直してください"
+            problems=$((problems + 1))
+        fi
+        wmclass="$(sed -n 's/^StartupWMClass=//p' "$found_desktop" | head -1)"
+        if [ "$wmclass" = "$APP_ID" ]; then
+            ok "StartupWMClass=$wmclass (タスクバーへの固定に必要)"
+        else
+            ng "StartupWMClass が $APP_ID ではありません: '$wmclass'"
+            problems=$((problems + 1))
+        fi
+    fi
+
+    echo
+    echo "[3] アイコン"
+    icon_hits=0
+    for dir in "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor" \
+               /usr/local/share/icons/hicolor /usr/share/icons/hicolor; do
+        for size in 48 256 scalable; do
+            for ext in png svg; do
+                [ -f "$dir/${size}x${size}/apps/$APP_ID.$ext" ] && icon_hits=$((icon_hits + 1))
+                [ -f "$dir/$size/apps/$APP_ID.$ext" ] && icon_hits=$((icon_hits + 1))
+            done
+        done
+    done
+    if [ "$icon_hits" -gt 0 ]; then
+        ok "hicolor テーマに $icon_hits 個のアイコンを確認"
+    else
+        ng "アイコンが見つかりません → ./install.sh を実行してください"
+        problems=$((problems + 1))
+    fi
+
+    echo
+    echo "[4] デスクトップ環境"
+    info "XDG_CURRENT_DESKTOP = ${XDG_CURRENT_DESKTOP:-(未設定)}"
+    info "XDG_SESSION_TYPE    = ${XDG_SESSION_TYPE:-(未設定)}"
+    info "XDG_DATA_HOME       = ${XDG_DATA_HOME:-(未設定 → ~/.local/share)}"
+    info "XDG_DATA_DIRS       = ${XDG_DATA_DIRS:-(未設定)}"
+    data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+    case ":${XDG_DATA_DIRS:-}:" in
+        *":$data_home:"*)
+            info "(XDG_DATA_DIRS にも $data_home が含まれています)" ;;
+        *)
+            info "(XDG_DATA_HOME は既定で検索対象なので、含まれていなくて問題ありません)" ;;
+    esac
+
+    echo
+    echo "[5] メニューキャッシュ"
+    for tool in kbuildsycoca6 kbuildsycoca5 update-desktop-database gtk-update-icon-cache; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            ok "$tool あり"
+        else
+            info "$tool なし"
+        fi
+    done
+
+    echo
+    if [ "$problems" -eq 0 ]; then
+        say "問題は見つかりませんでした。"
+        echo "    メニューに出ない場合は、いったんログアウト / ログインしてください。"
+        echo "    KDE では次のコマンドでも再読み込みできます:"
+        echo "        kbuildsycoca6 --noincremental && kquitapp6 plasmashell && kstart plasmashell"
+    else
+        warn "$problems 件の問題が見つかりました (上の NG を参照)"
+    fi
+    exit $([ "$problems" -eq 0 ] && echo 0 || echo 1)
+fi
 
 if [ "$ACTION" = "uninstall" ]; then
     say "アンインストールしています..."

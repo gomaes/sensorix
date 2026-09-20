@@ -15,6 +15,8 @@ import os
 import re
 from typing import Dict, List, Optional, Tuple
 
+from . import devinfo
+from .devinfo import DeviceNamer
 from .model import Group, Reading, sort_readings
 
 DEFAULT_HWMON_ROOT = "/sys/class/hwmon"
@@ -151,8 +153,10 @@ def _gpu_extras(drm_root: str, card: str, group_key: str) -> List[Reading]:
 def read_hwmon(
     hwmon_root: str = DEFAULT_HWMON_ROOT,
     drm_root: str = DEFAULT_DRM_ROOT,
+    namer: Optional[DeviceNamer] = None,
 ) -> Tuple[List[Group], List[str]]:
     """Scan every hwmon device.  Returns (groups, non-fatal error messages)."""
+    namer = namer or DeviceNamer()
     groups: List[Group] = []
     errors: List[str] = []
 
@@ -173,7 +177,7 @@ def read_hwmon(
             continue
         hwmon_dir = os.path.join(hwmon_root, entry)
         try:
-            group = _read_device(hwmon_dir, entry, cards, drm_root)
+            group = _read_device(hwmon_dir, entry, cards, drm_root, namer)
         except OSError as exc:
             errors.append(f"{entry}: {exc}")
             continue
@@ -186,7 +190,11 @@ def read_hwmon(
 
 
 def _read_device(
-    hwmon_dir: str, entry: str, cards: Dict[str, str], drm_root: str
+    hwmon_dir: str,
+    entry: str,
+    cards: Dict[str, str],
+    drm_root: str,
+    namer: DeviceNamer,
 ) -> Optional[Group]:
     name = _read_text(os.path.join(hwmon_dir, "name")) or entry
     if name in _BORING_CHIPS:
@@ -249,9 +257,21 @@ def _read_device(
     if not readings:
         return None
 
+    device_link = os.path.join(hwmon_dir, "device")
+    device_dir = os.path.realpath(device_link) if os.path.exists(device_link) else None
+
+    display = namer.chip_display_name(name, device_dir)
+    # Only fold an hwmon chip into another group when it really describes one
+    # physical device; a Super-I/O chip shares its parent with unrelated nodes.
+    merge_key = (
+        f"dev:{device_dir}" if device_dir and name.lower() in devinfo.DISK_CHIPS else None
+    )
+
     return Group(
         key=group_key,
-        name=name,
-        detail=" · ".join(parts),
+        name=display or name,
+        detail=" · ".join([name] + parts) if display else " · ".join(parts),
+        chip=name,
         readings=sort_readings(readings),
+        merge_key=merge_key,
     )

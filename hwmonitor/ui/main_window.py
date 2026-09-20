@@ -72,6 +72,7 @@ class MainWindow(QMainWindow):
         self._group_items: Dict[str, QTreeWidgetItem] = {}
         self._reading_items: Dict[str, QTreeWidgetItem] = {}
         self._warned_about_empty = False
+        self._show_chips = self._settings.value("view/showChipNames", False, type=bool)
 
         self.setWindowTitle(APP_NAME)
         self._mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
@@ -142,6 +143,16 @@ class MainWindow(QMainWindow):
         self._on_top_action.setShortcut(QKeySequence("Ctrl+T"))
         self._on_top_action.toggled.connect(self._apply_always_on_top)
         view_menu.addAction(self._on_top_action)
+        view_menu.addSeparator()
+
+        self._chip_names_action = QAction("モデル名ではなくチップ名を表示(&C)", self)
+        self._chip_names_action.setCheckable(True)
+        self._chip_names_action.setChecked(self._show_chips)
+        self._chip_names_action.setToolTip(
+            "Samsung SSD 980 PRO ではなく nvme のように、ドライバ名で表示します"
+        )
+        self._chip_names_action.toggled.connect(self._set_show_chips)
+        view_menu.addAction(self._chip_names_action)
         view_menu.addSeparator()
 
         expand = QAction("すべて展開(&E)", self)
@@ -258,8 +269,8 @@ class MainWindow(QMainWindow):
                 self.tree.insertTopLevelItem(min(position, self.tree.topLevelItemCount()), item)
                 item.setExpanded(True)
                 self._group_items[group.key] = item
-            item.setText(COL_NAME, group.name)
-            item.setToolTip(COL_NAME, group.detail or group.name)
+            item.setText(COL_NAME, self._group_label(group))
+            item.setToolTip(COL_NAME, self._group_tooltip(group))
 
             for reading in group.readings:
                 seen_readings.add(reading.key)
@@ -288,6 +299,24 @@ class MainWindow(QMainWindow):
                 self._update_row(child, reading)
 
         self._prune(seen_groups, seen_readings)
+
+    def _group_label(self, group: Group) -> str:
+        if self._show_chips and group.chip:
+            return group.chip
+        return group.name
+
+    def _group_tooltip(self, group: Group) -> str:
+        parts = [group.name]
+        if group.chip and group.chip != group.name:
+            parts.append(group.chip)
+        if group.detail:
+            parts.append(group.detail)
+        return " · ".join(parts)
+
+    def _set_show_chips(self, enabled: bool) -> None:
+        self._show_chips = enabled
+        if self._last_sample is not None:
+            self._render(self._last_sample)
 
     def _update_row(self, item: QTreeWidgetItem, reading: Reading) -> None:
         item.setText(COL_VALUE, reading.text)
@@ -488,6 +517,7 @@ class MainWindow(QMainWindow):
         self._settings.setValue("window/geometry", self.saveGeometry())
         self._settings.setValue("window/columns", self.tree.header().saveState())
         self._settings.setValue("window/onTop", self._on_top_action.isChecked())
+        self._settings.setValue("view/showChipNames", self._show_chips)
         try:
             self._timer.stop()
             self._thread.quit()

@@ -11,8 +11,7 @@ import os
 
 from PySide6.QtGui import QIcon
 
-#: Must match the basename of hwmonitor.desktop and the installed icon name.
-ICON_NAME = "hwmonitor"
+from ...desktop import ICON_NAME
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 

@@ -34,7 +34,9 @@ KINDS: Dict[str, Kind] = {
     "memory": Kind("memory", "MB", 0, 8),
     "energy": Kind("energy", "J", 2, 9),
     "humidity": Kind("humidity", "%", 1, 10),
-    "other": Kind("other", "", 2, 11),
+    "throughput": Kind("throughput", "MB/s", 1, 11),
+    "link": Kind("link", "Mb/s", 0, 12),
+    "other": Kind("other", "", 2, 13),
 }
 
 
@@ -108,17 +110,26 @@ class Reading:
     #: Hardware-defined alarm point (temp*_crit / temp*_max), when published.
     limit: Optional[float] = None
     stats: Optional[Stats] = None
+    #: Per-reading overrides, for values that share a kind but not its unit
+    #: (a SATA link is Gb/s while an Ethernet link is Mb/s).
+    unit_override: Optional[str] = None
+    precision_override: Optional[int] = None
 
     @property
     def unit(self) -> str:
-        return kind_of(self.kind).unit
+        return self.unit_override if self.unit_override is not None else kind_of(self.kind).unit
+
+    @property
+    def precision(self) -> int:
+        if self.precision_override is not None:
+            return self.precision_override
+        return kind_of(self.kind).precision
 
     def format(self, value: Optional[float]) -> str:
         if value is None or not math.isfinite(value):
             return "-"
-        k = kind_of(self.kind)
-        text = f"{value:.{k.precision}f}"
-        return f"{text} {k.unit}".strip()
+        text = f"{value:.{self.precision}f}"
+        return f"{text} {self.unit}".strip()
 
     @property
     def text(self) -> str:
@@ -145,6 +156,12 @@ class Group:
     name: str
     detail: str = ""
     readings: List[Reading] = field(default_factory=list)
+    #: Raw driver/chip name (k10temp, nvme, amdgpu), shown when the user asks
+    #: for chip names instead of model names.
+    chip: str = ""
+    #: Groups sharing a non-None merge key describe one physical device and are
+    #: folded together, e.g. an NVMe drive's temperature and its throughput.
+    merge_key: Optional[str] = None
 
 
 @dataclass(frozen=True)
