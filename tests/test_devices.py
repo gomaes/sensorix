@@ -8,11 +8,11 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from hwmonitor.sensors.collector import Collector, CollectorConfig  # noqa: E402
-from hwmonitor.sensors.devinfo import DeviceNamer  # noqa: E402
-from hwmonitor.sensors.disk import DiskReader  # noqa: E402
-from hwmonitor.sensors.net import NetReader  # noqa: E402
-from hwmonitor.sensors.pciids import PciIds, marketing_name  # noqa: E402
+from sensorix.sensors.collector import Collector, CollectorConfig  # noqa: E402
+from sensorix.sensors.devinfo import DeviceNamer  # noqa: E402
+from sensorix.sensors.disk import DiskReader  # noqa: E402
+from sensorix.sensors.net import NetReader  # noqa: E402
+from sensorix.sensors.pciids import PciIds, marketing_name  # noqa: E402
 from tests.fake_sysfs import build  # noqa: E402
 
 
@@ -74,7 +74,7 @@ def test_cpu_and_board_names():
     with tempfile.TemporaryDirectory() as tmp:
         namer = _namer(tmp)
         # the "8-Core Processor" suffix is noise
-        assert namer.cpu_model() == "AMD Ryzen 7 7800X3D"
+        assert namer.cpu_model() == "13th Gen Intel Core i5-13600KF"
         # "COMPUTER INC." is noise too
         assert namer.board_name() == "ASUSTeK PRIME B650-PLUS"
 
@@ -83,7 +83,7 @@ def test_chips_get_model_names():
     with tempfile.TemporaryDirectory() as tmp:
         collector = _collector(tmp)
         groups = {g.chip: g for g in collector.sample().groups}
-        assert groups["k10temp"].name == "AMD Ryzen 7 7800X3D"
+        assert groups["k10temp"].name == "13th Gen Intel Core i5-13600KF"
         assert groups["it8688"].name == "ASUSTeK PRIME B650-PLUS"
         assert groups["nvme"].name == "Samsung SSD 980 PRO 1TB"
         assert groups["amdgpu"].name == "Radeon RX 7800 XT"
@@ -93,18 +93,61 @@ def test_chips_get_model_names():
         assert groups["amdgpu"].chip == "amdgpu"
 
 
-def test_unresolvable_names_fall_back_to_the_chip_name():
+def test_unresolvable_names_degrade_gracefully():
     with tempfile.TemporaryDirectory() as tmp:
         # no pci.ids, no DMI, no cpuinfo
         collector = _collector(
             tmp, pci_ids_paths=("/nonexistent",), dmi_root="/nonexistent", cpuinfo="/nonexistent"
         )
         groups = {g.chip: g for g in collector.sample().groups}
+        # a plain-language description beats a bare driver name
+        assert groups["amdgpu"].name == "AMD GPU"
+        assert groups["drivetemp"].name == "Samsung SSD 870 EVO 1TB"
+        # nothing known about these at all, so the driver name stays
         assert groups["k10temp"].name == "k10temp"
-        assert groups["amdgpu"].name == "amdgpu"
         assert groups["it8688"].name == "it8688"
         # the model string comes from sysfs, so it survives
         assert groups["nvme"].name == "Samsung SSD 980 PRO 1TB"
+
+
+def test_devices_that_only_report_a_temperature_are_identified():
+    """The chips that showed up as bare driver names on real hardware."""
+    with tempfile.TemporaryDirectory() as tmp:
+        collector = _collector(tmp)
+        groups = collector.sample().groups
+        by_name = {g.name: g for g in groups}
+
+        # four identical spd5118 chips, told apart by their SPD hub address
+        dimms = sorted(n for n in by_name if n.startswith("DDR5 DIMM"))
+        assert dimms == ["DDR5 DIMM 1", "DDR5 DIMM 2", "DDR5 DIMM 3", "DDR5 DIMM 4"]
+        # the module part number lands in the detail line when the SPD is readable
+        assert "CMK32GX5M2B6000C36" in by_name["DDR5 DIMM 1"].detail
+        assert "spd5118" in by_name["DDR5 DIMM 1"].detail
+        assert by_name["DDR5 DIMM 1"].chip == "spd5118"
+
+        # a thermal zone has no vendor or model anywhere; describe it in words
+        assert "ACPI Thermal Zone" in by_name
+
+        # iwlwifi registers its hwmon against the wiphy, so the PCI IDs live
+        # two levels up; the subsystem entry gives the retail name
+        assert by_name["Wi-Fi 6E AX211 160MHz"].chip == "iwlwifi_1"
+
+        # a lone unlabelled channel reads better as "Temperature" than "Temp 1"
+        assert [r.label for r in by_name["ACPI Thermal Zone"].readings] == ["Temperature"]
+        assert [r.label for r in by_name["DDR5 DIMM 2"].readings] == ["Temperature"]
+        # multi-channel devices keep their own labels
+        assert "Composite" in [r.label for r in by_name["Samsung SSD 980 PRO 1TB"].readings]
+
+
+def test_instance_suffixes_and_trademark_noise_are_handled():
+    with tempfile.TemporaryDirectory() as tmp:
+        namer = _namer(tmp)
+        # "(R)" and "(TM)" only make the column wider
+        assert namer.cpu_model() == "13th Gen Intel Core i5-13600KF"
+        # "iwlwifi_1" must resolve through the "iwlwifi" table entry
+        assert namer.describe_chip("iwlwifi_1", None) == ("Wi-Fi Adapter", None)
+        assert namer.describe_chip("acpitz", None) == ("ACPI Thermal Zone", None)
+        assert namer.describe_chip("totally_unknown_chip", None) is None
 
 
 def test_disk_and_hwmon_groups_are_merged_into_one_device():

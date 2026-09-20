@@ -17,6 +17,12 @@ def _write(path: str, value) -> None:
         fh.write(f"{value}\n")
 
 
+def _write_bytes(path: str, value: bytes) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.write(value)
+
+
 def build(root: str, jitter: bool = False) -> Dict[str, str]:
     """Create a fake sysfs/procfs tree under `root`; returns the roots to use."""
     hwmon_root = os.path.join(root, "class", "hwmon")
@@ -115,7 +121,7 @@ def build(root: str, jitter: bool = False) -> Dict[str, str]:
 
     # --- hwmon4: a chip with no readable channel at all ---------------
     empty = os.path.join(hwmon_root, "hwmon4")
-    _write(os.path.join(empty, "name"), "acpitz")
+    _write(os.path.join(empty, "name"), "chip_with_no_channels")
 
     # --- hwmon5: SATA drive temperature (drivetemp) -------------------
     drivetemp = os.path.join(hwmon_root, "hwmon5")
@@ -125,8 +131,41 @@ def build(root: str, jitter: bool = False) -> Dict[str, str]:
     _write(os.path.join(drivetemp, "temp1_crit"), 70000)
     _symlink(scsi_device, os.path.join(drivetemp, "device"))
 
+    # --- hwmon6-9: DDR5 SPD hubs, one per populated slot --------------
+    for index, address in enumerate(("0050", "0051", "0052", "0053")):
+        dimm = os.path.join(hwmon_root, f"hwmon{6 + index}")
+        _write(os.path.join(dimm, "name"), "spd5118")
+        _write(os.path.join(dimm, "temp1_input"), 43500 + index * 500 + noise(1500))
+        i2c_device = os.path.join(devices_root, "platform", "i2c-0", f"0-{address}")
+        _write(os.path.join(i2c_device, "name"), "spd5118")
+        _symlink(i2c_device, os.path.join(dimm, "device"))
+    # the first slot has a readable SPD image; the rest are root-only in reality
+    spd = bytearray(b"\x00" * 1024)
+    part = b"CMK32GX5M2B6000C36".ljust(30, b" ")
+    spd[0x209 : 0x209 + 30] = part
+    _write_bytes(os.path.join(devices_root, "platform", "i2c-0", "0-0050", "eeprom"), bytes(spd))
+
+    # --- hwmon10: ACPI thermal zone (no vendor, no model) -------------
+    acpi = os.path.join(hwmon_root, "hwmon10")
+    _write(os.path.join(acpi, "name"), "acpitz")
+    _write(os.path.join(acpi, "temp1_input"), 27800 + noise(2000))
+
+    # --- hwmon11: Wi-Fi card whose hwmon hangs off the wiphy ----------
+    wifi = os.path.join(hwmon_root, "hwmon11")
+    _write(os.path.join(wifi, "name"), "iwlwifi_1")
+    _write(os.path.join(wifi, "temp1_input"), 42000 + noise(3000))
+    wifi_pci = os.path.join(devices_root, "pci0000:00", "0000:00:14.3")
+    _write(os.path.join(wifi_pci, "vendor"), "0x8086")
+    _write(os.path.join(wifi_pci, "device"), "0x51f0")
+    _write(os.path.join(wifi_pci, "subsystem_vendor"), "0x8086")
+    _write(os.path.join(wifi_pci, "subsystem_device"), "0x0094")
+    # the hwmon parent is the wiphy, two levels below the PCI function
+    wiphy = os.path.join(wifi_pci, "ieee80211", "phy0")
+    _write(os.path.join(wiphy, "name"), "phy0")
+    _symlink(wiphy, os.path.join(wifi, "device"))
+
     # --- machine identity, for CPU and mainboard names ----------------
-    _write(cpuinfo, "processor\t: 0\nmodel name\t: AMD Ryzen 7 7800X3D 8-Core Processor\n")
+    _write(cpuinfo, "processor\t: 0\nmodel name\t: 13th Gen Intel(R) Core(TM) i5-13600KF\n")
     _write(os.path.join(dmi_root, "board_vendor"), "ASUSTeK COMPUTER INC.")
     _write(os.path.join(dmi_root, "board_name"), "PRIME B650-PLUS")
 
@@ -189,6 +228,8 @@ PCI_IDS_SAMPLE = """
 	1638  Cezanne [Radeon Vega Series]
 8086  Intel Corporation
 	1234  Some Other Device
+	51f0  Alder Lake-P PCH CNVi WiFi
+		8086 0094  Wi-Fi 6E AX211 160MHz
 C 00  Unclassified device
 	00  Non-VGA unclassified device
 """

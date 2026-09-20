@@ -1,7 +1,7 @@
-# HWMonitor for Linux
+# Sensorix
 
-Arch Linux 向けの、CPUID **HWMonitor** (Windows) によく似たハードウェアモニターです。
-`/sys/class/hwmon/` を直接読み取り、チップごとのツリー表示で
+Arch Linux 向けのハードウェアモニターです。Windows の CPUID **HWMonitor** に
+似た見た目で、`/sys/class/hwmon/` を直接読み取り、デバイスごとのツリー表示で
 **Name / Value / Min / Max / Avg** の 5 列を 1〜2 秒間隔で更新します。
 
 ![スクリーンショット](docs/screenshot.png)
@@ -85,7 +85,7 @@ sudo pacman -S nvidia-utils        # NVIDIA: nvidia-smi が入ります
 ### 推奨: インストーラを使う (GNOME / KDE のアプリ一覧に登録されます)
 
 ```bash
-cd hwmonitor
+cd sensorix
 ./install.sh
 ```
 
@@ -93,16 +93,16 @@ sudo は不要です。以下がユーザー環境に配置されます。
 
 | 配置先 | 内容 |
 | --- | --- |
-| `~/.local/lib/hwmonitor/` | アプリ本体と専用の venv (PySide6 込み) |
-| `~/.local/bin/hwmonitor` | 起動コマンド |
-| `~/.local/share/applications/hwmonitor.desktop` | デスクトップエントリ |
-| `~/.local/share/icons/hicolor/*/apps/hwmonitor.png` | アイコン (16〜256px + SVG) |
+| `~/.local/lib/sensorix/` | アプリ本体と専用の venv (PySide6 込み) |
+| `~/.local/bin/sensorix` | 起動コマンド |
+| `~/.local/share/applications/sensorix.desktop` | デスクトップエントリ |
+| `~/.local/share/icons/hicolor/*/apps/sensorix.png` | アイコン (16〜256px + SVG) |
 
 インストール後は、
 
-- **GNOME**: アクティビティ画面で「HWMonitor」「温度」「sensor」などで検索
-- **KDE**: アプリケーションランチャー → **システム** → HWMonitor
-- **端末**: `hwmonitor`
+- **GNOME**: アクティビティ画面で「Sensorix」「温度」「sensor」などで検索
+- **KDE**: アプリケーションランチャー → **システム** → Sensorix
+- **端末**: `sensorix`
 
 で起動できます。ランチャーのアイコンを右クリック (KDE) / 長押し (GNOME) すると
 **「最前面に固定して起動」** のアクションが出ます。
@@ -137,7 +137,7 @@ sudo ./uninstall.sh --system   # システムインストールを削除
 ```
 
 設定 (ウィンドウ位置・列幅) は残るので、消す場合は
-`rm -rf ~/.config/hwmonitor-linux` を実行してください。
+`rm -rf ~/.config/sensorix` を実行してください。
 
 ### インストールせずに試す
 
@@ -150,12 +150,12 @@ sudo ./uninstall.sh --system   # システムインストールを削除
 ### uv / pip で開発用に入れる
 
 ```bash
-uv venv && uv pip install -r requirements.txt && uv run python -m hwmonitor
+uv venv && uv pip install -r requirements.txt && uv run python -m sensorix
 # または
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt && python -m hwmonitor
+pip install -r requirements.txt && python -m sensorix
 # コマンドとして入れる
-uv pip install -e .   # -> hwmonitor
+uv pip install -e .   # -> sensorix
 ```
 
 ## 3. 使い方
@@ -163,7 +163,7 @@ uv pip install -e .   # -> hwmonitor
 ### コマンドラインオプション
 
 ```
-hwmonitor [-i 秒] [-t °C] [-s auto|hwmon|sensors] [--no-nvidia] [--always-on-top] [-l] [-w]
+sensorix [-i 秒] [-t °C] [-s auto|hwmon|sensors] [--no-nvidia] [--always-on-top] [-l] [-w]
 ```
 
 | オプション | 説明 |
@@ -233,12 +233,30 @@ hwmonitor [-i 秒] [-t °C] [-s auto|hwmon|sensors] [--no-nvidia] [--always-on-t
 
 ### デバイス名の解決方法
 
-| 対象 | 取得元 |
-| --- | --- |
-| CPU (`k10temp`, `coretemp` …) | `/proc/cpuinfo` の `model name` |
-| マザーボード (`it87`, `nct67` …) | DMI の `board_vendor` + `board_name` |
-| NVMe / SATA / HDD | sysfs の `model` (+ `vendor`) |
-| GPU / NIC など PCI デバイス | `/usr/share/hwdata/pci.ids` を参照 |
+ドライバ名をそのまま出さず、次の順に「具体的なもの」から解決します。
+
+| 対象 | 取得元 | 表示例 |
+| --- | --- | --- |
+| CPU (`k10temp`, `coretemp` …) | `/proc/cpuinfo` の `model name` | `13th Gen Intel Core i5-13600KF` |
+| マザーボード (`it87`, `nct67` …) | DMI の `board_vendor` + `board_name` | `ASUSTeK PRIME B650-PLUS` |
+| NVMe / SATA / HDD | sysfs の `model` (+ `vendor`) | `Samsung SSD 990 EVO Plus 2TB` |
+| GPU / NIC / Wi-Fi など PCI デバイス | `/usr/share/hwdata/pci.ids` | `Radeon RX 7900 XTX` |
+| **DDR5 メモリ (`spd5118`)** | SPD ハブの I2C アドレス (0x50〜0x57) | `DDR5 DIMM 1` 〜 `DDR5 DIMM 4` |
+| 上記で解決できないチップ | 内蔵の説明テーブル | `ACPI Thermal Zone` |
+
+補足:
+
+- **`spd5118` が複数出る件** — DDR5 モジュールはスロットごとに温度センサー付きの
+  SPD ハブを持つため、挿している枚数だけ同名のチップが現れます。I2C アドレスから
+  スロット番号を割り出して `DDR5 DIMM 1`〜`4` と区別します。SPD が読める環境では
+  モジュールの型番も詳細 (ツールチップ) に表示します
+  (通常 SPD は root のみ読み取り可能なので、読めなくても動作します)
+- **`iwlwifi_1` などの `_1` 付き** — hwmon は同じドライバが複数チップを登録すると
+  連番を付けます。連番を除いて解決するようにしています
+- **PCI ID が親にある場合** — iwlwifi は hwmon を PCI デバイスではなく wiphy の
+  下に登録するため、PCI デバイスが見つかるまで親方向にたどります
+- 温度が 1 つしか無く、ラベルも無いデバイスは `Temp 1` ではなく
+  `Temperature` と表示します
 
 pci.ids が無い環境ではドライバ名のまま表示されます。導入するには:
 
@@ -257,9 +275,10 @@ sudo pacman -S hwdata      # 多くの場合 pciutils と一緒に導入済み
 | `PySide6 が見つかりません` | `./install.sh` または `./run.sh` を使う |
 | メニューにアプリが出ない | ログアウト / ログイン。または `update-desktop-database ~/.local/share/applications` |
 | アイコンが既定のものになる | `gtk-update-icon-cache -f ~/.local/share/icons/hicolor` の後、再ログイン |
-| `hwmonitor` コマンドが無い | `~/.local/bin` を PATH に追加 (`export PATH="$HOME/.local/bin:$PATH"`) |
-| KDE でタスクバーに固定できない | `./install.sh` で入れた `hwmonitor` から起動してください (`python -m hwmonitor` で直接起動するとウィンドウクラスが `python3` になり、パネルがアプリを特定できません) |
+| `sensorix` コマンドが無い | `~/.local/bin` を PATH に追加 (`export PATH="$HOME/.local/bin:$PATH"`) |
+| KDE でタスクバーに固定できない | `./install.sh` で入れた `sensorix` から起動してください (`python -m sensorix` で直接起動するとウィンドウクラスが `python3` になり、パネルがアプリを特定できません) |
 | GPU/NIC がドライバ名のまま | `sudo pacman -S hwdata` で pci.ids を導入 |
+| 正体不明のチップ名が出る | 表示メニューの「チップ名で表示」を切り、ツールチップで sysfs のパスを確認してください。対応を追加するので issue で知らせてください |
 | ディスク / NIC を出したくない | `--no-disk` / `--no-net` を付けて起動 |
 
 デスクトップ統合がうまくいかないときは、診断コマンドで原因を切り分けられます。
@@ -287,7 +306,7 @@ uv pip install -e '.[dev]' && pytest
 
 ```bash
 python3 tests/fake_sysfs.py /tmp/fake-sys   # 使うオプションを出力します
-python -m hwmonitor --hwmon-root /tmp/fake-sys/class/hwmon \
+python -m sensorix --hwmon-root /tmp/fake-sys/class/hwmon \
                     --drm-root   /tmp/fake-sys/class/drm \
                     --net-root   /tmp/fake-sys/class/net \
                     --block-root /tmp/fake-sys/block
@@ -300,10 +319,10 @@ install.sh               インストーラ (venv 作成・.desktop / アイコ�
 uninstall.sh             install.sh --uninstall の別名
 run.sh                   インストールせずに起動する簡易ランチャー
 desktop/
-└── hwmonitor.desktop.in  デスクトップエントリの雛形 (@EXEC@ を実パスに置換)
+└── sensorix.desktop.in  デスクトップエントリの雛形 (@EXEC@ を実パスに置換)
 icons/hicolor/...        インストール用アイコン (16〜256px + scalable)
 tools/render_icons.py    SVG から PNG 一式を再生成する
-hwmonitor/
+sensorix/
 ├── main.py              CLI、GUI 起動、--list / --watch
 ├── desktop.py           .desktop / WM_CLASS / アイコン名の共通定数
 ├── sensors/

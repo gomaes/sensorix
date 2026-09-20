@@ -24,7 +24,7 @@ def app_icon() -> QIcon:
         return themed
 
     icon = QIcon()
-    for filename in ("hwmonitor.png", "hwmonitor.svg"):
+    for filename in ("sensorix.png", "sensorix.svg"):
         path = os.path.join(_HERE, filename)
         if os.path.exists(path):
             icon.addFile(path)

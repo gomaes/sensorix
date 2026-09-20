@@ -8,12 +8,12 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from hwmonitor.sensors import lmsensors  # noqa: E402
-from hwmonitor.sensors.collector import Collector, CollectorConfig  # noqa: E402
-from hwmonitor.sensors.devinfo import DeviceNamer  # noqa: E402
-from hwmonitor.sensors.hwmon import read_hwmon  # noqa: E402
-from hwmonitor.sensors.model import StatsStore  # noqa: E402
-from hwmonitor.sensors.pciids import PciIds  # noqa: E402
+from sensorix.sensors import lmsensors  # noqa: E402
+from sensorix.sensors.collector import Collector, CollectorConfig  # noqa: E402
+from sensorix.sensors.devinfo import DeviceNamer  # noqa: E402
+from sensorix.sensors.hwmon import read_hwmon  # noqa: E402
+from sensorix.sensors.model import StatsStore  # noqa: E402
+from sensorix.sensors.pciids import PciIds  # noqa: E402
 from tests.fake_sysfs import build  # noqa: E402
 
 
@@ -40,10 +40,13 @@ def test_hwmon_groups_and_scaling():
             "nvme",
             "amdgpu",
             "drivetemp",
+            "spd5118",
+            "acpitz",
+            "iwlwifi_1",
         }, sorted(by_name)
 
         # a chip without a single readable channel is dropped, not reported
-        assert "acpitz" not in by_name
+        assert "chip_with_no_channels" not in by_name
 
         k10 = by_name["k10temp"]
         tctl = next(r for r in k10.readings if r.label == "Tctl")
@@ -135,7 +138,7 @@ def test_collector_attaches_stats_and_survives_a_broken_backend():
         assert third.groups[0].readings[0].stats.count == 1
 
         # a backend that explodes must degrade into an error string
-        import hwmonitor.sensors.collector as collector_module
+        import sensorix.sensors.collector as collector_module
 
         def boom(*_args, **_kwargs):
             raise RuntimeError("kaboom")

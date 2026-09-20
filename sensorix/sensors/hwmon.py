@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+from dataclasses import replace
 from typing import Dict, List, Optional, Tuple
 
 from . import devinfo
@@ -36,6 +37,7 @@ SENSOR_TYPES: Dict[str, Tuple[str, float, str]] = {
 
 _INPUT_RE = re.compile(r"^(%s)(\d+)_input$" % "|".join(SENSOR_TYPES))
 _PWM_RE = re.compile(r"^pwm(\d+)$")
+_GENERIC_TEMP_RE = re.compile(r"^Temp \d+$")
 
 #: Chip names that are noisy and carry no real sensor value.
 _BORING_CHIPS = {"acpitz_dummy"}
@@ -260,17 +262,31 @@ def _read_device(
     device_link = os.path.join(hwmon_dir, "device")
     device_dir = os.path.realpath(device_link) if os.path.exists(device_link) else None
 
-    display = namer.chip_display_name(name, device_dir)
+    described = namer.describe_chip(name, device_dir)
+    display, extra = described if described is not None else (None, None)
+
+    # A device with a single unlabelled channel reads better as "Temperature"
+    # than as "Temp 1"; most of these are DIMMs, thermal zones and Wi-Fi cards.
+    temps = [r for r in readings if r.kind == "temp"]
+    if len(temps) == 1 and _GENERIC_TEMP_RE.match(temps[0].label):
+        readings = [
+            replace(r, label="Temperature") if r is temps[0] else r for r in readings
+        ]
     # Only fold an hwmon chip into another group when it really describes one
     # physical device; a Super-I/O chip shares its parent with unrelated nodes.
     merge_key = (
         f"dev:{device_dir}" if device_dir and name.lower() in devinfo.DISK_CHIPS else None
     )
 
+    detail = [name] if display else []
+    if extra:
+        detail.append(extra)
+    detail.extend(parts)
+
     return Group(
         key=group_key,
         name=display or name,
-        detail=" · ".join([name] + parts) if display else " · ".join(parts),
+        detail=" · ".join(detail),
         chip=name,
         readings=sort_readings(readings),
         merge_key=merge_key,

@@ -1,4 +1,4 @@
-"""The HWMonitor-style main window."""
+"""The main window: a HWMonitor-style sensor tree."""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ class MainWindow(QMainWindow):
         self._collector = collector
         self._interval_ms = interval_ms
         self._threshold = temp_threshold
-        self._settings = QSettings("hwmonitor-linux", "HWMonitor")
+        self._settings = QSettings("sensorix", "Sensorix")
         self._last_sample: Optional[Sample] = None
         self._busy = False
         self._group_items: Dict[str, QTreeWidgetItem] = {}
@@ -460,7 +460,7 @@ class MainWindow(QMainWindow):
             return
         default = os.path.join(
             os.path.expanduser("~"),
-            _dt.datetime.now().strftime("hwmonitor-%Y%m%d-%H%M%S.txt"),
+            _dt.datetime.now().strftime("sensorix-%Y%m%d-%H%M%S.txt"),
         )
         path, _ = QFileDialog.getSaveFileName(
             self, "監視データを保存", default, "テキストファイル (*.txt);;すべてのファイル (*)"

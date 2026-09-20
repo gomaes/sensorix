@@ -27,7 +27,7 @@ from .sensors.model import Sample
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="hwmonitor",
+        prog="sensorix",
         description=f"{APP_NAME} - CPUID HWMonitor 風のハードウェアモニター",
     )
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {__version__}")
@@ -146,9 +146,9 @@ def run_headless(args: argparse.Namespace) -> int:
 def run_gui(args: argparse.Namespace) -> int:
     # Qt's xcb plugin takes the X11 WM_CLASS instance name from $RESOURCE_NAME,
     # and falls back to the basename of argv[0] - which is "python3" when the
-    # app is started as `python -m hwmonitor`. KDE's task manager matches the
-    # window against StartupWMClass in hwmonitor.desktop, so without this the
-    # window cannot be pinned to the panel as HWMonitor. Must be set before
+    # app is started as `python -m sensorix`. KDE's task manager matches the
+    # window against StartupWMClass in sensorix.desktop, so without this the
+    # window cannot be pinned to the panel as Sensorix. Must be set before
     # QApplication is constructed, and regardless of how we were launched.
     os.environ.setdefault("RESOURCE_NAME", ICON_NAME)
 
@@ -160,7 +160,7 @@ def run_gui(args: argparse.Namespace) -> int:
             "  uv sync      (uv を使う場合)\n"
             "  pip install -r requirements.txt\n"
             "のいずれかで依存関係をインストールしてください。\n"
-            "GUI なしで確認するには `hwmonitor --list` が使えます。\n"
+            "GUI なしで確認するには `sensorix --list` が使えます。\n"
         )
         return 2
 
@@ -170,13 +170,13 @@ def run_gui(args: argparse.Namespace) -> int:
 
     app = QApplication(sys.argv)
     # applicationName doubles as the X11 WM_CLASS, and desktopFileName as the
-    # Wayland app_id; both must match hwmonitor.desktop for the desktop shell to
+    # Wayland app_id; both must match sensorix.desktop for the desktop shell to
     # pair the window with its launcher icon.
     app.setApplicationName(ICON_NAME)
     app.setApplicationDisplayName(APP_NAME)
     app.setDesktopFileName(ICON_NAME)
     app.setApplicationVersion(__version__)
-    app.setOrganizationName("hwmonitor-linux")
+    app.setOrganizationName("sensorix")
     app.setWindowIcon(app_icon())
     theme.apply(app)
 

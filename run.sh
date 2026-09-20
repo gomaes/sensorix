@@ -15,4 +15,4 @@ if [ ! -d .venv ]; then
     fi
 fi
 
-exec .venv/bin/python -m hwmonitor "$@"
+exec .venv/bin/python -m sensorix "$@"

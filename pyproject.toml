@@ -1,7 +1,7 @@
 [project]
-name = "hwmonitor-linux"
+name = "sensorix"
 version = "1.0.0"
-description = "CPUID HWMonitor 風のハードウェアモニター for Arch Linux (PySide6)"
+description = "Hardware monitor for Arch Linux in the style of CPUID HWMonitor (PySide6)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -13,17 +13,17 @@ dependencies = [
 dev = ["pytest>=7.0"]
 
 [project.scripts]
-hwmonitor = "hwmonitor.main:main"
+sensorix = "sensorix.main:main"
 
 [project.gui-scripts]
-hwmonitor-gui = "hwmonitor.main:main"
+sensorix-gui = "sensorix.main:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["hwmonitor"]
+packages = ["sensorix"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

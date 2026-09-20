@@ -1,4 +1,4 @@
-"""Rasterise hwmonitor.svg into the hicolor PNG set used by install.sh.
+"""Rasterise sensorix.svg into the hicolor PNG set used by install.sh.
 
 Run after editing the SVG:
 
@@ -16,7 +16,7 @@ from PySide6.QtSvg import QSvgRenderer
 
 SIZES = (16, 22, 24, 32, 48, 64, 128, 256)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SOURCE = os.path.join(ROOT, "hwmonitor", "ui", "icons", "hwmonitor.svg")
+SOURCE = os.path.join(ROOT, "sensorix", "ui", "icons", "sensorix.svg")
 DEST = os.path.join(ROOT, "icons", "hicolor")
 
 
@@ -42,7 +42,7 @@ def main() -> int:
 
         directory = os.path.join(DEST, f"{size}x{size}", "apps")
         os.makedirs(directory, exist_ok=True)
-        path = os.path.join(directory, "hwmonitor.png")
+        path = os.path.join(directory, "sensorix.png")
         if not image.save(path, "PNG"):
             print(f"保存に失敗しました: {path}", file=sys.stderr)
             return 1
@@ -50,9 +50,9 @@ def main() -> int:
 
     scalable = os.path.join(DEST, "scalable", "apps")
     os.makedirs(scalable, exist_ok=True)
-    with open(SOURCE, "rb") as src, open(os.path.join(scalable, "hwmonitor.svg"), "wb") as dst:
+    with open(SOURCE, "rb") as src, open(os.path.join(scalable, "sensorix.svg"), "wb") as dst:
         dst.write(src.read())
-    print(f"  {os.path.join(scalable, 'hwmonitor.svg')}")
+    print(f"  {os.path.join(scalable, 'sensorix.svg')}")
     return 0
 
 

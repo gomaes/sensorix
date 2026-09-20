@@ -2,7 +2,7 @@
 
 `ICON_NAME` has to stay in sync with three things at once:
 
-* the basename of `desktop/hwmonitor.desktop.in` (so Wayland's app_id matches),
+* the basename of `desktop/sensorix.desktop.in` (so Wayland's app_id matches),
 * `StartupWMClass` inside that file (so X11's WM_CLASS matches), and
 * the installed icon name under `share/icons/hicolor/*/apps/`.
 
@@ -12,5 +12,5 @@ $RESOURCE_NAME without dragging in Qt.
 
 from __future__ import annotations
 
-ICON_NAME = "hwmonitor"
+ICON_NAME = "sensorix"
 DESKTOP_FILE = f"{ICON_NAME}.desktop"
